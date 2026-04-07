@@ -8,6 +8,40 @@ use crate::printer::{macro_push_node, str_to_node};
 #[allow(unused_imports)]
 use sise::Node;
 
+#[test]
+fn mangles_invalid_smt_atoms() {
+    match str_to_node("r#for$") {
+        Node::Atom(atom) => {
+            assert_eq!(atom, "r$23$for$");
+            assert!(!atom.contains('#'));
+        }
+        _ => panic!("expected atom"),
+    }
+    match str_to_node("r#in$") {
+        Node::Atom(atom) => {
+            assert_eq!(atom, "r$23$in$");
+            assert!(!atom.contains('#'));
+        }
+        _ => panic!("expected atom"),
+    }
+}
+
+#[test]
+fn stats_parser_reports_solver_errors() {
+    let smt_output = vec![
+        "(error \"line 1115 column 14: invalid bit-vector literal, expecting 'x' or 'b'\")"
+            .to_string(),
+        "(:rlimit-count 17724)".to_string(),
+    ];
+
+    match crate::smt_verify::parse_stats_map(&smt_output) {
+        Err(ValidityResult::UnexpectedOutput(msg)) => {
+            assert!(msg.contains("invalid bit-vector literal"));
+        }
+        result => panic!("unexpected result: {:?}", result),
+    }
+}
+
 #[allow(dead_code)]
 fn run_nodes_as_test(should_typecheck: bool, should_be_valid: bool, nodes: &[Node]) {
     let message_interface = std::sync::Arc::new(crate::messages::AirMessageInterface {});

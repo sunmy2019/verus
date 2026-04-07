@@ -380,6 +380,21 @@ test_verify_one_file_with_options! {
 }
 
 test_verify_one_file! {
+    #[test] raw_identifiers_in_smt_2221 verus_code! {
+        fn f(r#in: i32, out: i32)
+            requires
+                r#in > 0,
+                out > 0
+        {
+            let r#for = 1i32;
+            assert(r#in >= r#for);
+            assert(out >= r#for);
+            assert(r#out >= r#for); // using r#out here is intentional to test that the raw identifier is properly handled.
+        }
+    } => Ok(())
+}
+
+test_verify_one_file! {
     #[test] const_name_in_lifetime_generate_regression_563 verus_code! {
         pub spec const CONST_VALUE: nat = 32;
         #[verifier(external_body)]

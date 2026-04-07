@@ -133,7 +133,8 @@ pub(crate) fn prelude_nodes(config: PreludeConfig) -> Vec<Node> {
     let const_bool = str_to_node(CONST_BOOL);
     let ext_eq = str_to_node(EXT_EQ);
 
-    let type_id_unit = str_to_node(&prefix_type_id(&encode_dt_as_path(&crate::ast::Dt::Tuple(0))));
+    let type_id_unit =
+        str_to_node(prefix_type_id(&encode_dt_as_path(&crate::ast::Dt::Tuple(0))).as_ref());
 
     let bit_xor = str_to_node(BIT_XOR);
     let bit_and = str_to_node(BIT_AND);
@@ -1150,7 +1151,8 @@ pub(crate) fn pointee_metadata_prelude() -> Vec<Node> {
     let project_pointee_metadata_decoration = str_to_node(PROJECT_POINTEE_METADATA_DECORATION);
 
     let type_id_usize = str_to_node(TYPE_ID_USIZE);
-    let type_id_unit = str_to_node(&prefix_type_id(&encode_dt_as_path(&crate::ast::Dt::Tuple(0))));
+    let type_id_unit =
+        str_to_node(prefix_type_id(&encode_dt_as_path(&crate::ast::Dt::Tuple(0))).as_ref());
 
     nodes_vec!(
         (declare-fun [project_pointee_metadata] ([decoration]) [typ])
@@ -1292,7 +1294,7 @@ fn datatype_height_axiom(
     for typ_param in tparams.iter() {
         for (x, t) in crate::def::suffix_typ_param_ids_types(&typ_param) {
             use crate::ast_util::LowerUniqueVar;
-            let x = str_to_node(&x.lower());
+            let x = str_to_node(x.lower().as_ref());
             let t = str_to_node(t);
             forall_params.push(node!(([x][t])));
             field_x.push(x);

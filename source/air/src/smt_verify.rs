@@ -367,10 +367,40 @@ pub(crate) fn smt_get_rlimit_count(context: &mut Context) -> Result<u64, Validit
     context.smt_log.log_get_info("all-statistics");
     let smt_data = context.smt_log.take_pipe_data();
     let smt_output = context.get_smt_process().send_commands(smt_data);
-    let statistics = crate::parser::parse_sexpression(&smt_output);
-    let stats_map = statistics
+    let stats_map = parse_stats_map(&smt_output)?;
+    extract_rlimit_count(&stats_map)
+}
+
+pub(crate) fn parse_stats_map(
+    smt_output: &[String],
+) -> Result<HashMap<String, String>, ValidityResult> {
+    let solver_errors: Vec<&str> = smt_output
+        .iter()
+        .map(|line| line.trim())
+        .filter(|line| line.starts_with("(error "))
+        .collect();
+    if !solver_errors.is_empty() {
+        return Err(ValidityResult::UnexpectedOutput(solver_errors.join("\n")));
+    }
+
+    let statistics_lines: Vec<String> = smt_output
+        .iter()
+        .map(|line| line.trim())
+        .filter(|line| !line.is_empty())
+        .map(str::to_owned)
+        .collect();
+    if statistics_lines.is_empty() {
+        return Err(ValidityResult::UnexpectedOutput(
+            "expected statistics in SMT output".to_string(),
+        ));
+    }
+
+    let statistics = crate::parser::parse_sexpression(&statistics_lines);
+    statistics
         .as_list()
-        .unwrap()
+        .ok_or_else(|| {
+            ValidityResult::UnexpectedOutput("expected statistics list in SMT output".to_string())
+        })?
         .chunks(2)
         .map(|chunk| {
             let [key, value] = chunk else {
@@ -380,8 +410,8 @@ pub(crate) fn smt_get_rlimit_count(context: &mut Context) -> Result<u64, Validit
             };
             let Some((key, value)) = key
                 .as_atom()
-                .map(|key| &key.as_str()[1..])
-                .and_then(|key| value.as_atom().map(|value| (key, value.as_str())))
+                .and_then(|key| key.strip_prefix(':'))
+                .and_then(|key| value.as_atom().map(|value| (key.to_string(), value.to_string())))
             else {
                 return Err(ValidityResult::UnexpectedOutput(format!(
                     "expected key-value pair in statistics"
@@ -389,13 +419,20 @@ pub(crate) fn smt_get_rlimit_count(context: &mut Context) -> Result<u64, Validit
             };
             Ok((key, value))
         })
-        .collect::<Result<HashMap<&str, &str>, ValidityResult>>()?;
-    let Some(rlimit_count) = stats_map["rlimit-count"].parse().ok() else {
-        return Err(ValidityResult::UnexpectedOutput(format!(
-            "expected rlimit-count in smt statistics"
-        )));
+        .collect::<Result<HashMap<String, String>, ValidityResult>>()
+}
+
+fn extract_rlimit_count(stats_map: &HashMap<String, String>) -> Result<u64, ValidityResult> {
+    let Some(rlimit_count_str) = stats_map.get("rlimit-count") else {
+        return Err(ValidityResult::UnexpectedOutput(
+            "expected rlimit-count in smt statistics".to_string(),
+        ));
     };
-    Ok(rlimit_count)
+    rlimit_count_str.parse().map_err(|_| {
+        ValidityResult::UnexpectedOutput(
+            "expected numeric rlimit-count in smt statistics".to_string(),
+        )
+    })
 }
 
 fn smt_get_model(

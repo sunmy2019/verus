@@ -7,10 +7,68 @@ use crate::context::SmtSolver;
 use crate::def::mk_skolem_id;
 use crate::util::vec_map;
 use sise::{Node, Writer};
+use std::fmt::Write as _;
 use std::sync::Arc;
 
-pub fn str_to_node(s: &str) -> Node {
-    Node::Atom(s.to_string())
+#[inline]
+pub fn str_to_node(s: impl Into<String>) -> Node {
+    let s: String = s.into();
+
+    if is_valid_smt_atom(&s) { Node::Atom(s) } else { Node::Atom(mangle_smt_atom(&s)) }
+}
+
+fn mangle_smt_atom(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+
+    for (index, ch) in s.chars().enumerate() {
+        if is_smt_simple_symbol_char(ch) && !(index == 0 && ch.is_ascii_digit()) {
+            out.push(ch);
+        } else {
+            // write to a string is unlikely to fail, so we can just unwrap here
+            write!(&mut out, "${:x}$", ch as u32).unwrap();
+        }
+    }
+
+    if out.is_empty() || out.chars().next().unwrap().is_ascii_digit() {
+        out.insert(0, '$');
+    }
+    out
+}
+
+fn is_smt_simple_symbol_char(c: char) -> bool {
+    c.is_ascii_alphanumeric() || "~!@$%^&*_-+=<>.?/".contains(c)
+}
+
+fn is_smt_keyword(s: &str) -> bool {
+    let Some(rest) = s.strip_prefix(':') else {
+        return false;
+    };
+    !rest.is_empty() && rest.chars().all(is_smt_simple_symbol_char)
+}
+
+fn is_smt_number_like(s: &str) -> bool {
+    if s.bytes().all(|b| b.is_ascii_digit()) {
+        return true;
+    }
+    let Some((lhs, rhs)) = s.split_once('.') else {
+        return false;
+    };
+    !lhs.is_empty()
+        && !rhs.is_empty()
+        && lhs.bytes().all(|b| b.is_ascii_digit())
+        && rhs.bytes().all(|b| b.is_ascii_digit())
+}
+
+fn is_valid_smt_atom(s: &str) -> bool {
+    if s == "-" || is_smt_keyword(s) || is_smt_number_like(s) {
+        return true;
+    }
+    let Some(first) = s.chars().next() else {
+        return false;
+    };
+    !first.is_ascii_digit()
+        && is_smt_simple_symbol_char(first)
+        && s.chars().skip(1).all(is_smt_simple_symbol_char)
 }
 
 pub fn macro_push_node(nodes: &mut Vec<Node>, node: Node) {
@@ -98,7 +156,7 @@ impl Printer {
             TypX::Real => str_to_node("Real"),
             TypX::Fun if self.print_as_smt => str_to_node(crate::def::FUNCTION),
             TypX::Fun => str_to_node("Fun"),
-            TypX::Named(name) => str_to_node(&name.clone()),
+            TypX::Named(name) => str_to_node(name.as_ref()),
             TypX::BitVec(size) => Node::List(vec![
                 str_to_node("_"),
                 str_to_node("BitVec"),
@@ -128,7 +186,11 @@ impl Printer {
     }
 
     pub(crate) fn filter_to_node(&self, filter: &Option<Ident>) -> Node {
-        if let Some(filter) = filter { nodes!({ str_to_node(filter) }) } else { Node::List(vec![]) }
+        if let Some(filter) = filter {
+            nodes!({ str_to_node(filter.as_ref()) })
+        } else {
+            Node::List(vec![])
+        }
     }
 
     fn rounding_mode_to_node(&self, r: &RoundingMode) -> Node {
@@ -147,13 +209,13 @@ impl Printer {
             ExprX::Const(Constant::Nat(n)) => Node::Atom((**n).clone()),
             ExprX::Const(Constant::Real(n)) => Node::Atom((**n).clone()),
             ExprX::Const(Constant::BitVec(n, width)) => self.bv_const_expr_to_node(n, *width),
-            ExprX::Var(x) => Node::Atom(x.to_string()),
+            ExprX::Var(x) => str_to_node(x.as_ref()),
             ExprX::Old(snap, x) => {
-                nodes!(old {str_to_node(&snap.to_string())} {str_to_node(&x.to_string())})
+                nodes!(old {str_to_node(snap.as_ref())} {str_to_node(x.as_ref())})
             }
             ExprX::Apply(x, exprs) => {
                 let mut nodes: Vec<Node> = Vec::new();
-                nodes.push(str_to_node(x));
+                nodes.push(str_to_node(x.as_ref()));
                 for expr in exprs.iter() {
                     nodes.push(self.expr_to_node(expr));
                 }
@@ -378,7 +440,7 @@ impl Printer {
                         }
                         if let Some(s) = qid {
                             nodes.push(str_to_node(":qid"));
-                            nodes.push(str_to_node(s));
+                            nodes.push(str_to_node(s.as_ref()));
                             if matches!(self.solver, SmtSolver::Z3) {
                                 nodes.push(str_to_node(":skolemid"));
                                 nodes.push(str_to_node(&mk_skolem_id(s)));
@@ -447,7 +509,7 @@ impl Printer {
         binder: &Binder<A>,
         f: &F,
     ) -> Node {
-        Node::List([str_to_node(&binder.name), f(&binder.a)].to_vec())
+        Node::List([str_to_node(binder.name.as_ref()), f(&binder.a)].to_vec())
     }
 
     pub(crate) fn binders_to_node<A: Clone, F: Fn(&A) -> Node>(
@@ -464,7 +526,7 @@ impl Printer {
         f: &F,
     ) -> Node {
         let mut nodes: Vec<Node> = Vec::new();
-        nodes.push(str_to_node(&binder.name));
+        nodes.push(str_to_node(binder.name.as_ref()));
         for a in binder.a.iter() {
             nodes.push(f(a));
         }
@@ -472,11 +534,11 @@ impl Printer {
     }
 
     pub fn sort_decl_to_node(&self, x: &Ident) -> Node {
-        node!((declare-sort {str_to_node(x)} 0))
+        node!((declare-sort {str_to_node(x.as_ref())} 0))
     }
 
     pub fn datatypes_decl_to_node(&self, datatypes: &Datatypes) -> Node {
-        let decls = Node::List(vec_map(datatypes, |d| nodes!({str_to_node(&d.name)} 0)));
+        let decls = Node::List(vec_map(datatypes, |d| nodes!({str_to_node(d.name.as_ref())} 0)));
         let defns = Node::List(vec_map(datatypes, |d| {
             Node::List(vec_map(&d.a, |variant| {
                 self.multibinder_to_node(&variant, &|field| {
@@ -493,21 +555,21 @@ impl Printer {
     }
 
     pub fn const_decl_to_node(&self, x: &Ident, typ: &Typ) -> Node {
-        nodes!(declare-const {str_to_node(x)} {self.typ_to_node(typ)})
+        nodes!(declare-const {str_to_node(x.as_ref())} {self.typ_to_node(typ)})
     }
 
     pub fn fun_decl_to_node(&self, x: &Ident, typs: &Typs, typ: &Typ) -> Node {
-        nodes!(declare-fun {str_to_node(x)} {self.typs_to_node(typs)} {self.typ_to_node(typ)})
+        nodes!(declare-fun {str_to_node(x.as_ref())} {self.typs_to_node(typs)} {self.typ_to_node(typ)})
     }
 
     pub fn var_decl_to_node(&self, x: &Ident, typ: &Typ) -> Node {
-        nodes!(declare-var {str_to_node(x)} {self.typ_to_node(typ)})
+        nodes!(declare-var {str_to_node(x.as_ref())} {self.typ_to_node(typ)})
     }
 
     pub fn axiom_to_node(&self, axiom: &Axiom) -> Node {
         let Axiom { named, expr } = axiom;
         if let Some(named) = named {
-            nodes!(axiom ({str_to_node("!")} {self.expr_to_node(expr)} {str_to_node(":named")} {str_to_node(named)}))
+            nodes!(axiom ({str_to_node("!")} {self.expr_to_node(expr)} {str_to_node(":named")} {str_to_node(named.as_ref())}))
         } else {
             nodes!(axiom {self.expr_to_node(expr)})
         }
@@ -538,12 +600,16 @@ impl Printer {
                     nodes!(assert {Node::List(spans)} {filter_nodes} {self.expr_to_node(expr)})
                 }
             }
-            StmtX::Havoc(x) => nodes!(havoc {str_to_node(x)}),
-            StmtX::Assign(x, expr) => nodes!(assign {str_to_node(x)} {self.expr_to_node(expr)}),
-            StmtX::Snapshot(snap) => nodes!(snapshot {str_to_node(snap)}),
+            StmtX::Havoc(x) => nodes!(havoc {str_to_node(x.as_ref())}),
+            StmtX::Assign(x, expr) => {
+                nodes!(assign {str_to_node(x.as_ref())} {self.expr_to_node(expr)})
+            }
+            StmtX::Snapshot(snap) => nodes!(snapshot {str_to_node(snap.as_ref())}),
             StmtX::DeadEnd(s) => nodes!(deadend {self.stmt_to_node(s)}),
-            StmtX::Breakable(x, s) => nodes!(breakable {str_to_node(x)} {self.stmt_to_node(s)}),
-            StmtX::Break(x) => nodes!(break { str_to_node(x) }),
+            StmtX::Breakable(x, s) => {
+                nodes!(breakable {str_to_node(x.as_ref())} {self.stmt_to_node(s)})
+            }
+            StmtX::Break(x) => nodes!(break { str_to_node(x.as_ref()) }),
             StmtX::Block(stmts) | StmtX::Switch(stmts) => {
                 let mut nodes = Vec::new();
                 let s = match &**stmt {
