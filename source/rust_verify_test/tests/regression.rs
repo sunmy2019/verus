@@ -380,6 +380,21 @@ test_verify_one_file_with_options! {
 }
 
 test_verify_one_file! {
+    #[test] raw_identifiers_in_smt_2221 verus_code! {
+    #[allow(non_camel_case_types)]
+        fn r#match<
+            r#type: PartialEq + Structural,
+        >(r#in: r#type, r#out: r#type)
+            requires
+                r#in == r#out,
+        {
+            let r#match = r#in;
+            assert(r#match == r#out);
+        }
+    } => Ok(())
+}
+
+test_verify_one_file! {
     #[test] const_name_in_lifetime_generate_regression_563 verus_code! {
         pub spec const CONST_VALUE: nat = 32;
         #[verifier(external_body)]
