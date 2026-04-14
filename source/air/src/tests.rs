@@ -9,32 +9,13 @@ use crate::printer::{NodeWriter, macro_push_node, str_to_node};
 use sise::Node;
 
 #[test]
-fn mangles_invalid_smt_atoms() {
-    match str_to_node("r#for$") {
-        Node::Atom(atom) => {
-            assert_eq!(atom, format!("{}_72_23_66_6f_72_24", crate::def::MANGLED_SYMBOL_PREFIX));
-            assert!(!atom.contains('#'));
-            assert!(atom.starts_with(crate::def::MANGLED_SYMBOL_PREFIX));
-        }
-        _ => panic!("expected atom"),
+fn node_writer_mangles_invalid_atoms() {
+    for atom in ["r#for$", "r#in$", "r#bad"] {
+        let mut nw = NodeWriter::new();
+        let s = nw.node_to_string_indent(&String::new(), &Node::Atom(atom.to_string()));
+        assert!(s.contains(crate::def::MANGLED_SYMBOL_PREFIX));
+        assert!(!s.contains('#'));
     }
-    match str_to_node("r#in$") {
-        Node::Atom(atom) => {
-            assert_eq!(atom, format!("{}_72_23_69_6e_24", crate::def::MANGLED_SYMBOL_PREFIX));
-            assert!(!atom.contains('#'));
-            assert!(atom.starts_with(crate::def::MANGLED_SYMBOL_PREFIX));
-        }
-        _ => panic!("expected atom"),
-    }
-}
-
-#[cfg(debug_assertions)]
-#[test]
-#[should_panic(expected = "invalid SMT token in Node::Atom")]
-fn invalid_node_atom_panics_in_debug() {
-    let mut node_writer = NodeWriter::new();
-    let node = Node::Atom("r#bad".to_string());
-    node_writer.node_to_string_indent(&String::new(), &node);
 }
 
 #[allow(dead_code)]

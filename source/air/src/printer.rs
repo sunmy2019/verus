@@ -10,32 +10,45 @@ use sise::{Node, Writer};
 use std::sync::Arc;
 
 fn is_smt_simple_symbol_char(c: char) -> bool {
-    c.is_ascii_alphanumeric() || "~!@$%^&*_-+=<>.?/".contains(c)
-}
-
-fn is_smt_keyword(s: &str) -> bool {
-    let Some(rest) = s.strip_prefix(':') else {
-        return false;
-    };
-    !rest.is_empty() && rest.chars().all(is_smt_simple_symbol_char)
-}
-
-fn is_smt_number_like(s: &str) -> bool {
-    if s.bytes().all(|b| b.is_ascii_digit()) {
-        return true;
-    }
-    let Some((lhs, rhs)) = s.split_once('.') else {
-        return false;
-    };
-    !lhs.is_empty()
-        && !rhs.is_empty()
-        && lhs.bytes().all(|b| b.is_ascii_digit())
-        && rhs.bytes().all(|b| b.is_ascii_digit())
+    c.is_ascii_alphanumeric()
+        || matches!(
+            c,
+            '~' | '!'
+                | '@'
+                | '$'
+                | '%'
+                | '^'
+                | '&'
+                | '*'
+                | '_'
+                | '-'
+                | '+'
+                | '='
+                | '<'
+                | '>'
+                | '.'
+                | '?'
+                | '/'
+        )
 }
 
 fn is_valid_smt_atom(s: &str) -> bool {
-    if is_smt_keyword(s) || is_smt_number_like(s) {
+    if let Some(rest) = s.strip_prefix(':') {
+        if !rest.is_empty() && rest.chars().all(is_smt_simple_symbol_char) {
+            return true;
+        }
+    }
+    if s.bytes().all(|b| b.is_ascii_digit()) {
         return true;
+    }
+    if let Some((lhs, rhs)) = s.split_once('.') {
+        if !lhs.is_empty()
+            && !rhs.is_empty()
+            && lhs.bytes().all(|b| b.is_ascii_digit())
+            && rhs.bytes().all(|b| b.is_ascii_digit())
+        {
+            return true;
+        }
     }
     let Some(first) = s.chars().next() else {
         return false;
@@ -45,34 +58,26 @@ fn is_valid_smt_atom(s: &str) -> bool {
         && s.chars().skip(1).all(is_smt_simple_symbol_char)
 }
 
-fn is_valid_smt_string_literal(s: &str) -> bool {
-    s.len() >= 2 && s.starts_with('"') && s.ends_with('"')
-}
-
-fn is_valid_smt_token(s: &str) -> bool {
-    is_valid_smt_atom(s) || is_valid_smt_string_literal(s)
-}
-
 fn mangle_smt_atom(s: &str) -> String {
     use std::fmt::Write as _;
-
     let mut out = String::from(MANGLED_SYMBOL_PREFIX);
-
     if s.is_empty() {
         out.push('_');
         return out;
     }
-
     for ch in s.chars() {
         write!(&mut out, "_{:x}", ch as u32).expect("Writing to String should not fail");
     }
-
     out
+}
+
+pub fn sanitize_ident(s: &str) -> Ident {
+    Arc::new(if is_valid_smt_atom(s) { s.to_string() } else { mangle_smt_atom(s) })
 }
 
 #[inline]
 pub fn str_to_node(s: &str) -> Node {
-    Node::Atom(if is_valid_smt_atom(s) { s.to_string() } else { mangle_smt_atom(s) })
+    Node::Atom(s.to_string())
 }
 
 pub fn macro_push_node(nodes: &mut Vec<Node>, node: Node) {
@@ -209,7 +214,7 @@ impl Printer {
             ExprX::Const(Constant::Nat(n)) => Node::Atom((**n).clone()),
             ExprX::Const(Constant::Real(n)) => Node::Atom((**n).clone()),
             ExprX::Const(Constant::BitVec(n, width)) => self.bv_const_expr_to_node(n, *width),
-            ExprX::Var(x) => str_to_node(x.as_ref()),
+            ExprX::Var(x) => Node::Atom(x.to_string()),
             ExprX::Old(snap, x) => {
                 nodes!(old {str_to_node(&snap.to_string())} {str_to_node(&x.to_string())})
             }
@@ -651,8 +656,9 @@ impl NodeWriter {
             sise::SpacedStringWriterNodeOptions { break_line_len: if brk { 0 } else { break_len } };
         match node {
             Node::Atom(a) => {
-                debug_assert!(is_valid_smt_token(a), "invalid SMT token in Node::Atom: {:?}", a);
-                writer.write_atom(a, opts).unwrap();
+                let a = if is_valid_smt_atom(a) { a.clone() } else { mangle_smt_atom(a) };
+                assert!(sise::check_atom(&a), "invalid atom: {}", a);
+                writer.write_atom(&a, opts).unwrap();
             }
             Node::List(l) => {
                 writer.begin_list(opts).unwrap();
