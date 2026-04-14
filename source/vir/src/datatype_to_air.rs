@@ -341,7 +341,12 @@ fn datatype_or_fun_to_air_commands(
                         pre.push(inv);
                     }
                 }
-                let name = format!("{}_{}", &variant_ident(&dt, &variant.name), QID_CONSTRUCTOR);
+                let name = format!(
+                    "{}::{}_{}",
+                    path_as_friendly_rust_name(dpath),
+                    variant.name,
+                    QID_CONSTRUCTOR
+                );
                 let bind = func_bind(ctx, name, tparams, &params, &has_ctor, None);
                 let imply = mk_implies(&mk_and(&pre), &has_ctor);
                 let forall = mk_bind_expr(&bind, &imply);
@@ -383,7 +388,13 @@ fn datatype_or_fun_to_air_commands(
                 Arc::new(DeclX::Fun(id.clone(), Arc::new(xfield_params), typ_to_air(ctx, typ)));
             field_commands.push(Arc::new(CommandX::Global(decl_field)));
             let trigs = vec![xfield.clone()];
-            let name = format!("{}_{}", id, QID_ACCESSOR);
+            let name = format!(
+                "{}::{}::{}_{}",
+                path_as_friendly_rust_name(dpath),
+                variant.name,
+                field.name,
+                QID_ACCESSOR
+            );
             let bind = func_bind_trig(ctx, name, &tparams_opt, &x_params(&datatyp), &trigs, None);
             let eq = mk_eq(&xfield, &xfield_internal);
             let vid = is_variant_ident(&Dt::Path(dpath.clone()), &*variant.name);
@@ -400,7 +411,13 @@ fn datatype_or_fun_to_air_commands(
                         //   forall typs, x. has_type(x, T(typs)) => inv_f(unbox(x).f)
                         // trigger on unbox(x).f, has_type(x, T(typs))
                         let trigs = vec![xfield_unbox.clone(), has.clone()];
-                        let name = format!("{}_{}", id, QID_INVARIANT);
+                        let name = format!(
+                            "{}::{}::{}_{}",
+                            path_as_friendly_rust_name(dpath),
+                            variant.name,
+                            field.name,
+                            QID_INVARIANT
+                        );
                         let bind =
                             func_bind_trig(ctx, name, tparams, &x_params(&vpolytyp), &trigs, None);
                         let imply = mk_implies(&has, &inv_f);
@@ -625,7 +642,10 @@ fn datatype_or_fun_to_air_commands(
                 };
                 pre.push(eq);
             }
-            axiom_commands.push(eq_command(&variant_ident(&my_dt, &variant.name), &pre));
+            axiom_commands.push(eq_command(
+                &format!("{}::{}", path_as_friendly_rust_name(dpath), variant.name),
+                &pre,
+            ));
         }
         if matches!(kind, EncodedDtKind::FnSpec) {
             // SpecFn ext_equal axiom:

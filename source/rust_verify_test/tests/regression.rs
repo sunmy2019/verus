@@ -1,4 +1,5 @@
 #![feature(rustc_private)]
+#![allow(mixed_script_confusables)]
 #[macro_use]
 mod common;
 use common::*;
@@ -1586,4 +1587,133 @@ test_verify_one_file! {
             }
         }
     } => Ok(())
+}
+
+test_verify_one_file! {
+    #[test] raw_identifiers_in_smt_2221 verus_code! {
+        // Raw identifiers (r#keyword) must be sanitized before reaching AIR/SMT-LIB,
+        // since '#' is not a valid SMT-LIB simple-symbol character.
+        // Test a representative set of Rust strict keywords as function names,
+        // parameters, local variables, struct fields, and enum variants.
+
+        struct r#struct {
+            r#type: u32,
+            r#loop: u32,
+        }
+
+        enum r#enum {
+            r#match,
+            r#impl,
+        }
+
+        fn r#match(
+            r#in: u32,
+            r#out: u32,
+            r#for: u32,
+            r#while: u32,
+            r#return: u32,
+            r#break: u32,
+            r#continue: u32,
+            r#if: u32,
+            r#else: u32,
+            r#let: u32,
+            r#mut: u32,
+            r#ref: u32,
+            r#move: u32,
+            r#const: u32,
+            r#static: u32,
+            r#unsafe: u32,
+            r#where: u32,
+            r#async: u32,
+            r#await: u32,
+            r#dyn: u32,
+            r#as: u32,
+            r#use: u32,
+            r#pub: u32,
+            r#mod: u32,
+        ) -> u32
+            requires r#in == r#out
+        {
+            let r#type = r#in;
+            let r#loop = r#for;
+            let r#match = r#while;
+            let r#impl = r#return;
+            let r#enum = r#break;
+            let r#struct = r#continue;
+            let r#trait = r#if;
+            let r#let = r#else;
+            let r#mut = r#let;
+            let r#ref = r#mut;
+            let r#move = r#ref;
+            let r#const = r#move;
+            let r#static = r#const;
+            let r#unsafe = r#static;
+            let r#where = r#unsafe;
+            let r#async = r#where;
+            let r#await = r#async;
+            let r#dyn = r#await;
+            let r#as = r#dyn;
+            let r#use = r#as;
+            let r#pub = r#use;
+            let r#mod = r#pub;
+            assert(r#type == r#out);
+            r#type
+        }
+
+        fn raw_param(r#for: u32) -> u32 { r#for }
+    } => Ok(())
+}
+
+test_verify_one_file! {
+    #[test] unicode_identifiers_in_smt_2221 verus_code! {
+        // Unicode identifiers must be sanitized before reaching AIR/SMT-LIB,
+        // since non-ASCII characters are not valid in SMT-LIB simple symbols.
+        // Test unicode in types, fields, enums, traits, generics, functions,
+        // parameters, locals, constants, and spec/proof functions.
+
+        struct 结构体<类型> {
+            字段1: 类型,
+            字段2: u32,
+        }
+
+        enum 枚举<中> {
+            变体1,
+            变体2(中),
+        }
+
+        trait 特征 {
+            spec fn 方法(&self) -> int;
+        }
+
+        impl 特征 for 结构体<u32> {
+            spec fn 方法(&self) -> int { self.字段1 as int + self.字段2 as int }
+        }
+
+        spec fn αβγ(x: u32) -> u32 { x }
+
+        const 值: u32 = 42;
+
+        proof fn test_unicode<泛型>(s: 结构体<u32>, e: 枚举<u32>)
+            requires s.字段1 == 值
+        {
+            let 局部变量 = s.字段1;
+            let 希腊 = αβγ(1u32);
+            let 日语 = 值;
+            assert(局部变量 == 值);
+            assert(希腊 == 1u32);
+            assert(日语 == 42);
+            assert(s.方法() == 值 as int + s.字段2 as int);
+        }
+    } => Ok(_err) => {
+        // Verification succeeds; the only warnings are the mixed_script_confusables
+        // lint about using non-ASCII identifiers, which is a Rust lint unrelated to AIR sanitization.
+        assert!(_err.errors.is_empty(), "unexpected errors: {:?}", _err.errors);
+        for w in &_err.warnings {
+            let msg = &w.message;
+            assert!(
+                msg.contains("mixed script confusables") || msg.contains("warning emitted"),
+                "unexpected warning: {:?}", msg
+            );
+        }
+    }
 }
